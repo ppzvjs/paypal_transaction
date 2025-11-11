@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  composer:
+    container_name: composer_paypal_service
+    build:
+      context: ./dockerfiles
+      dockerfile: composer.dockerfile
+    volumes:
+      - ./src:/var/www/html
+
+  console:
+    container_name: console_paypal_service
+    build:
+      context: ./dockerfiles
+      dockerfile: php.dockerfile
+    volumes:
+      - ./src:/var/www/html
+    entrypoint: [ 'php', '/var/www/html/bin/console' ]
+
+volumes:
+  db:
