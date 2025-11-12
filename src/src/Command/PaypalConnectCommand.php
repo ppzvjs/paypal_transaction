@@ -7,12 +7,11 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[AsCommand(
     name: 'paypal:connect',
-    description: 'Fetch PayPal transactions (with payer info, safe rate-limited enrichment)',
+    description: 'Fetch PayPal transactions, enrich with payer info, and save CSV report.',
 )]
 class PaypalConnectCommand extends Command
 {
@@ -50,15 +49,41 @@ class PaypalConnectCommand extends Command
         $accessToken = $data['access_token'];
         $io->note('Access token erhalten.');
 
-        // STEP 2: Date range (Berlin → UTC)
+        // STEP 2: Ask for date (Berlin time, default = yesterday)
         $berlinTz = new \DateTimeZone('Europe/Berlin');
         $yesterdayBerlin = new \DateTimeImmutable('yesterday', $berlinTz);
-        $startDate = $yesterdayBerlin->setTime(0, 0, 0)
+        $defaultDateStr = $yesterdayBerlin->format('Y-m-d');
+
+        $chosenDateStr = $io->ask(
+            'Bitte Datum eingeben (Format: YYYY-MM-DD)',
+            $defaultDateStr,
+            function ($input) {
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $input)) {
+                    throw new \RuntimeException('Ungültiges Datum. Bitte im Format YYYY-MM-DD eingeben.');
+                }
+                return $input;
+            }
+        );
+
+        try {
+            $chosenDate = new \DateTimeImmutable($chosenDateStr, $berlinTz);
+        } catch (\Exception $e) {
+            $io->error('Ungültiges Datum eingegeben. Verwende Standardwert (gestern).');
+            $chosenDate = $yesterdayBerlin;
+        }
+
+        // Convert to UTC for PayPal API
+        $startDate = $chosenDate->setTime(0, 0, 0)
             ->setTimezone(new \DateTimeZone('UTC'))
             ->format('Y-m-d\TH:i:s\Z');
-        $endDate = $yesterdayBerlin->setTime(23, 59, 59)
+        $endDate = $chosenDate->setTime(23, 59, 59)
             ->setTimezone(new \DateTimeZone('UTC'))
             ->format('Y-m-d\TH:i:s\Z');
+
+        $io->note(sprintf(
+            'Abruf der Transaktionen für %s (Berlin-Zeit)',
+            $chosenDate->format('d.m.Y')
+        ));
 
         // STEP 3: Fetch transactions
         $transactionsResponse = $this->client->request('GET', $this->apiurl . 'v1/reporting/transactions', [
@@ -69,91 +94,110 @@ class PaypalConnectCommand extends Command
             'query' => [
                 'start_date' => $startDate,
                 'end_date' => $endDate,
+                'fields' => 'all',
             ],
         ]);
 
         $transactions = $transactionsResponse->toArray();
 
-        // STEP 4: Build table
         if (empty($transactions['transaction_details'])) {
-            $io->warning('Keine Transaktionen für gestern gefunden.');
+            $io->warning('Keine Transaktionen für den angegebenen Tag gefunden.');
             return Command::SUCCESS;
         }
 
         $rows = [];
-        $lookupCache = [];
+        $csvRows = [];
 
         foreach ($transactions['transaction_details'] as $t) {
             $info = $t['transaction_info'] ?? [];
+            $payer = $t['payer_info'] ?? [];
 
-            // Convert UTC → Berlin
+            // Convert UTC → Berlin, only date
             $datum = 'N/A';
             if (!empty($info['transaction_initiation_date'])) {
                 $date = new \DateTimeImmutable($info['transaction_initiation_date'], new \DateTimeZone('UTC'));
-                $datum = $date->setTimezone(new \DateTimeZone('Europe/Berlin'))->format('Y-m-d H:i:s');
+                $datum = $date->setTimezone(new \DateTimeZone('Europe/Berlin'))->format('d.m.Y');
             }
 
-            // Defaults
-            $name = $info['transaction_subject'] ?? $info['invoice_id'] ?? 'Unbekannt';
-            $email = '';
-            $agreementId = $info['paypal_reference_id'] ?? null;
-            $transactionId = $info['transaction_id'] ?? null;
-
-
-
-            // Extract payer info from any format
-            if (!empty($extra)) {
-                if (isset($extra['payer']['payer_info'])) {
-                    // Old billing-agreement format
-                    $payer = $extra['payer']['payer_info'];
-                    $payerName = trim(($payer['first_name'] ?? '') . ' ' . ($payer['last_name'] ?? ''));
-                    $payerEmail = $payer['email'] ?? '';
-                } elseif (isset($extra['subscriber'])) {
-                    // New subscription format
-                    $payer = $extra['subscriber'];
-                    $payerName = trim(($payer['name']['given_name'] ?? '') . ' ' . ($payer['name']['surname'] ?? ''));
-                    $payerEmail = $payer['email_address'] ?? '';
-                } elseif (isset($extra['payer']['payer_info']['email'])) {
-                    // /v1/payments/payment/ response
-                    $payer = $extra['payer']['payer_info'];
-                    $payerName = trim(($payer['first_name'] ?? '') . ' ' . ($payer['last_name'] ?? ''));
-                    $payerEmail = $payer['email'] ?? '';
-                } else {
-                    $payerName = null;
-                    $payerEmail = null;
+            // Extract payer name and email
+            $payerName = 'Unbekannt';
+            $payerEmail = '';
+            if (!empty($payer)) {
+                if (!empty($payer['payer_name']['alternate_full_name'])) {
+                    $payerName = $payer['payer_name']['alternate_full_name'];
+                } elseif (!empty($payer['payer_name']['given_name']) || !empty($payer['payer_name']['surname'])) {
+                    $payerName = trim(($payer['payer_name']['given_name'] ?? '') . ' ' . ($payer['payer_name']['surname'] ?? ''));
                 }
 
-                if (!empty($payerName)) $name = $payerName;
-                if (!empty($payerEmail)) $email = $payerEmail;
+                if (!empty($payer['email_address'])) {
+                    $payerEmail = $payer['email_address'];
+                }
             }
 
-            // STEP 6: Financials
+            // Financials (numeric only)
             $brutto = (float)($info['transaction_amount']['value'] ?? 0);
-            $waehrung = $info['transaction_amount']['currency_code'] ?? '';
             $gebuehr = (float)($info['fee_amount']['value'] ?? 0);
             $netto = (float)($info['net_amount']['value'] ?? 0);
             if ($netto == 0 && $brutto != 0) {
                 $netto = $brutto + $gebuehr;
             }
 
-            $rechnungsnummer = $info['invoice_id'] ?? $info['transaction_id'] ?? 'N/A';
-            $guthaben = $info['ending_balance']['value'] ?? '';
+            $rechnungsnummer = $info['invoice_id'] ?? '';
+            if ($rechnungsnummer === '' && !empty($info['transaction_subject'])) {
+                if (preg_match('/^\d{3,7}-\d{3,7}_\d{3,7}$/', $info['transaction_subject'])) {
+                    $rechnungsnummer = $info['transaction_subject'];
+                }
+            }
 
+            $guthaben = (float)($info['ending_balance']['value'] ?? 0);
+
+            // Add to table (with email)
             $rows[] = [
                 $datum,
-                $name . ($email ? " ({$email})" : ''),
-                sprintf('%.2f %s', $brutto, $waehrung),
-                sprintf('%.2f %s', $gebuehr, $waehrung),
-                sprintf('%.2f %s', $netto, $waehrung),
+                $payerName,
+                $payerEmail,
+                number_format($brutto, 2, ',', ''),
+                number_format($gebuehr, 2, ',', ''),
+                number_format($netto, 2, ',', ''),
                 $rechnungsnummer,
-                $guthaben ? sprintf('%s %s', $guthaben, $waehrung) : '—',
+                number_format($guthaben, 2, ',', ''),
+            ];
+
+            // Add to CSV (without email)
+            $csvRows[] = [
+                $datum,
+                $payerName,
+                number_format($brutto, 2, ',', ''),
+                number_format($gebuehr, 2, ',', ''),
+                number_format($netto, 2, ',', ''),
+                $rechnungsnummer,
+                number_format($guthaben, 2, ',', ''),
             ];
         }
 
+        // STEP 7: Display in console (with email)
         $io->table(
-            ['Datum', 'Name', 'Brutto', 'Gebühr', 'Netto', 'Rechnungsnummer', 'Guthaben'],
+            ['Datum', 'Name', 'E-Mail', 'Brutto', 'Gebühr', 'Netto', 'Rechnungsnummer', 'Guthaben'],
             $rows
         );
+
+        // STEP 8: Save as CSV (without email)
+        $csvDir = $_ENV['STOREFOLDER'];
+        if (!is_dir($csvDir)) {
+            mkdir($csvDir, 0775, true);
+        }
+
+        $reportDate = $chosenDate->format('Y-m-d');
+        $filename = sprintf('%spaypal-transactions-%s.csv', $csvDir, $reportDate);
+        $fp = fopen($filename, 'w');
+
+        fputcsv($fp, ['Datum', 'Name', 'Brutto', 'Gebühr', 'Netto', 'Rechnungsnummer', 'Guthaben'], ';');
+        foreach ($csvRows as $row) {
+            fputcsv($fp, $row, ';');
+        }
+
+        fclose($fp);
+        $io->success("CSV-Datei erfolgreich gespeichert unter: $filename");
 
         return Command::SUCCESS;
     }
