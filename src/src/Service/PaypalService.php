@@ -101,6 +101,10 @@ class PaypalService
                 }
             }
 
+            /*if($rechnungsnummer == ''){
+                var_dump($t);
+            }*/
+
             $guthaben = (float)($info['ending_balance']['value'] ?? 0);
 
             $csvRows[] = [
