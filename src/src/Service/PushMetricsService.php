@@ -4,7 +4,7 @@ namespace App\Service;
 
 use Prometheus\CollectorRegistry;
 use Prometheus\Storage\InMemory;
-use Prometheus\PushGateway;
+use PrometheusPushGateway\PushGateway;
 
 class PushMetricsService
 {
@@ -13,7 +13,10 @@ class PushMetricsService
 
     public function __construct()
     {
+        // Create in-memory registry for metrics for this script run
         $this->registry = new CollectorRegistry(new InMemory(), false);
+
+        // Metrics server URL env variable MUST contain: http://IP:9091
         $this->pushGateway = new PushGateway($_ENV['METRICS_SERVER_URL']);
     }
 
