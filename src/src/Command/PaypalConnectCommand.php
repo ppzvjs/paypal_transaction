@@ -163,7 +163,7 @@ class PaypalConnectCommand extends Command
         $successCounter->inc(['success']);
 
         // PUSH TO PUSHGATEWAY
-        $this->metrics->push('paypal_cronjob');
+        #$this->metrics->push('paypal_cronjob');
 
         // ---------------------------------------------------------
         // RENDER TABLE

@@ -1,0 +1,33 @@
+doctrine:
+    dbal:
+        default_connection: cover
+        connections:
+            cover:
+                driver: oci8
+                host: '%env(resolve:ORACLE_HOST)%'
+                port: '%env(resolve:ORACLE_PORT)%'
+                dbname: '%env(resolve:ORACLE_SID)%'
+                user: '%env(resolve:ORACLE_USER)%'
+                password: '%env(resolve:ORACLE_PASSWORD)%'
+                charset: AL32UTF8
+
+    orm:
+        default_entity_manager: cover
+        auto_generate_proxy_classes: true
+        enable_lazy_ghost_objects: true
+
+
+        entity_managers:
+            cover:
+                connection: cover
+                second_level_cache:
+                    enabled: false
+                mappings:
+                    Cover:
+                        is_bundle: false
+                        type: attribute
+                        dir: '%kernel.project_dir%/src/Entity'
+                        prefix: 'App\Entity'
+                        alias: Cover
+
+

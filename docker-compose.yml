@@ -17,6 +17,14 @@ services:
     volumes:
       - ./src:/var/www/html
     entrypoint: [ 'php', '/var/www/html/bin/console' ]
+  php83:
+    build:
+        context: ./dockerfiles
+        dockerfile: test.dockerfile
+    volumes:
+      - ./src:/var/www/html
+    ports:
+      - "9000:9000"
 
 volumes:
   db:
