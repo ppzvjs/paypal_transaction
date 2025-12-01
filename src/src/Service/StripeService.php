@@ -45,7 +45,7 @@ class StripeService
     }
 
     public function saveCsv(array $csvRows, \DateTimeImmutable $dateBerlin): void{
-        $csvDir = $_ENV['STOREFOLDER'];
+        $csvDir = $_ENV['STOREFOLDER_STRIPE'];
         if (!is_dir($csvDir)) {
             mkdir($csvDir, 0775, true);
         }
