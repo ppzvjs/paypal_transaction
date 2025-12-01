@@ -57,7 +57,7 @@ class PaypalService
                 'start_date' => $startDate,
                 'end_date' => $endDate,
                 'fields' => 'all',
-		'page_size' => 1000
+		'page_size' => 500
             ],
         ]);
 
