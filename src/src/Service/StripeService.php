@@ -39,7 +39,7 @@ class StripeService
             $invoice = $item['description'] ?? '';
             $balance = 0;
 
-            $rows[] = [$date, $name, $gross, $fee, $net, $invoice, $balance];
+            $rows[] = [$date, $gross, $fee, $net, $invoice];
         }
         return $rows;
     }
@@ -53,7 +53,7 @@ class StripeService
         $reportDate = $dateBerlin->format('Y-m-d');
         $filename = sprintf('%sstripe-transactions-%s.csv', $csvDir, $reportDate);
         $fp = fopen($filename, 'w');
-        fputcsv($fp, ['Datum', 'Name', 'Brutto', 'Gebühr', 'Netto', 'Rechnungsnummer', 'Guthaben'], ';');
+        fputcsv($fp, ['Datum', 'Brutto', 'Gebühr', 'Netto', 'Rechnungsnummer'], ';');
         foreach ($csvRows as $row) {
             fputcsv($fp, $row, ';');
         }
