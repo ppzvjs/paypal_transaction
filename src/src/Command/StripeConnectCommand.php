@@ -9,13 +9,12 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand(
     name: 'stripe:connect',
-    description: 'Add a short description for your command',
+    description: 'Fetch Stripe transactions for a specific date and sync to DB/CSV.',
 )]
 class StripeConnectCommand extends Command
 {
@@ -26,41 +25,69 @@ class StripeConnectCommand extends Command
         parent::__construct();
     }
 
+    protected function configure(): void
+    {
+        // Argument 'date' als optional hinzufügen
+        $this->addArgument('date', InputArgument::OPTIONAL, 'Das Datum im Format YYYY-MM-DD');
+    }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-
-        $io->title('Stripe Connect Command');
+        $io->title('Stripe Connect & Sync');
 
         $berlinTz = new \DateTimeZone('Europe/Berlin');
-        $yesterdayBerlin = new \DateTimeImmutable('yesterday', $berlinTz);
-        $defaultDateStr = $yesterdayBerlin->format('Y-m-d');
 
-        $chosenDateStr = $io->ask(
-            'Bitte Datum eingeben (Format: YYYY-MM-DD)',
-            $defaultDateStr,
-            fn ($input) => preg_match('/^\d{4}-\d{2}-\d{2}$/', $input)
-                ? $input
-                : throw new \RuntimeException('Ungültiges Datum.')
-        );
+        // 1. DATUM ERMITTELN (Argument oder interaktive Abfrage)
+        $chosenDateStr = $input->getArgument('date');
 
-// Start des Tages 00:00:00
-        $startOfDay = new \DateTimeImmutable($chosenDateStr . ' 00:00:00', $berlinTz);
-        $startTimestamp = $startOfDay->getTimestamp();
+        if (!$chosenDateStr) {
+            $yesterdayBerlin = new \DateTimeImmutable('yesterday', $berlinTz);
+            $defaultDateStr = $yesterdayBerlin->format('Y-m-d');
 
-// Ende des Tages 23:59:59
-        $endOfDay = new \DateTimeImmutable($chosenDateStr . ' 23:59:59', $berlinTz);
-        $endTimestamp = $endOfDay->getTimestamp();
+            $chosenDateStr = $io->ask(
+                'Bitte Datum eingeben (Format: YYYY-MM-DD)',
+                $defaultDateStr,
+                fn ($answer) => preg_match('/^\d{4}-\d{2}-\d{2}$/', $answer)
+                    ? $answer
+                    : throw new \RuntimeException('Ungültiges Datum.')
+            );
+        }
 
-// Optional: Ausgabe zum Testen
-        $io->writeln("Start Timestamp: $startTimestamp");
-        $io->writeln("End Timestamp:   $endTimestamp");
+        try {
+            // Zeitgrenzen für den gewählten Tag festlegen
+            $startOfDay = new \DateTimeImmutable($chosenDateStr . ' 00:00:00', $berlinTz);
+            $endOfDay = $startOfDay->setTime(23, 59, 59);
 
-        $data = $this->stripeService->fetchTransactions($startTimestamp, $endTimestamp);
-        $csvData = $this->stripeService->generateData($data);
-        $this->stripeService->saveCsv($csvData, $startOfDay);
+            $startTimestamp = $startOfDay->getTimestamp();
+            $endTimestamp = $endOfDay->getTimestamp();
 
+            $io->note("Zeitraum: $chosenDateStr (Timestamps: $startTimestamp - $endTimestamp)");
+
+            // 2. VERARBEITUNG
+            $io->info('Rufe Daten von Stripe ab...');
+            $data = $this->stripeService->fetchTransactions($startTimestamp, $endTimestamp);
+
+            if (empty($data['data'])) {
+                $io->warning('Keine Stripe-Transaktionen für diesen Zeitraum gefunden.');
+                return Command::SUCCESS;
+            }
+
+            $csvData = $this->stripeService->generateData($data);
+
+            $io->info('Speichere CSV und synchronisiere Datenbank...');
+            $this->stripeService->saveCsv($csvData, $startOfDay);
+
+            $io->success(sprintf(
+                'Erfolgreich! %d Transaktionen für den %s verarbeitet.',
+                count($csvData),
+                $chosenDateStr
+            ));
+
+        } catch (\Throwable $e) {
+            $io->error("Fehler bei der Stripe-Verarbeitung: " . $e->getMessage());
+            return Command::FAILURE;
+        }
 
         return Command::SUCCESS;
     }
