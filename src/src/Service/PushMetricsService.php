@@ -27,6 +27,6 @@ class PushMetricsService
 
     public function push(string $jobName, array $groupingKeys = []): void
     {
-        $this->pushGateway->push($this->registry, $jobName, $groupingKeys);
+        //$this->pushGateway->push($this->registry, $jobName, $groupingKeys);
     }
 }

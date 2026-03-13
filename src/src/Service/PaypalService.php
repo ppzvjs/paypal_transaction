@@ -23,6 +23,39 @@ class PaypalService
         }
     }
 
+    public function getAuthToken(){
+        print $this->apiurl;
+        try {
+            $response = $this->client->request('POST', $this->apiurl . 'v1/oauth2/token', [
+                'auth_basic' => [$this->clientId, $this->clientSecret],
+                'body' => ['grant_type' => 'client_credentials'],
+            ]);
+            $accessToken = $response->toArray()['access_token'];
+            return $accessToken;
+        } catch (\Exception $e) {
+            throw new \RuntimeException('PayPal authentication failed: ' . $e->getMessage());
+        }
+    }
+
+    public function findCustomerTransactions(string $transaction_id, \DateTimeImmutable $lookback): array
+    {
+        $accessToken = $this->getAuthToken();
+
+        $response = $this->client->request('GET', $this->apiurl . 'v1/reporting/transactions', [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $accessToken,
+            ],
+            'query' => [
+                'start_date' => $lookback->format('Y-m-d\TH:i:s\Z'),
+                'end_date' => (new \DateTimeImmutable())->format('Y-m-d\TH:i:s\Z'),
+                'transaction_id' => $transaction_id, // PayPal unterstützt diesen Filter!
+                'fields' => 'all',
+            ],
+        ]);
+
+        return $response->toArray();
+    }
+
     /**
      * Fetch transactions for a given date (Berlin timezone), save CSV file, return file path.
      */

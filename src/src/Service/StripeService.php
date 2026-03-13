@@ -2,6 +2,8 @@
 
 namespace App\Service;
 
+use App\Entity\Transactions;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class StripeService
@@ -9,7 +11,7 @@ class StripeService
     private HttpClientInterface $client;
     private string $apiKey;
 
-    public function __construct(HttpClientInterface $client)
+    public function __construct(HttpClientInterface $client, private EntityManagerInterface $em)
     {
         $this->client = $client;
         $this->apiKey = $_ENV['STRIPE_API_KEY'];
@@ -56,8 +58,28 @@ class StripeService
         fputcsv($fp, ['Datum', 'Brutto', 'Gebühr', 'Netto', 'Rechnungsnummer'], ';');
         foreach ($csvRows as $row) {
             fputcsv($fp, $row, ';');
+            $transaction = new Transactions();
+
+            // Note: Adjust the indexes ($row[0], $row[1]...) based on your actual CSV column order
+            $transaction->setCreated(new \DateTime($row[0] ?? 'now'));
+            $transaction->setName('Unknown');
+            $transaction->setType('Stripe');
+            $transaction->setBrutto($this->cleanNumber($row[1] ?? '0'));
+            $transaction->setGebuehr($this->cleanNumber($row[2] ?? '0'));
+            $transaction->setNetto($this->cleanNumber($row[3] ?? '0'));
+            $transaction->setAmount(0); // Mapping Brutto to Amount as well
+            $transaction->setDescription($row[4] ?? 'No description');
+            $this->em->persist($transaction);
         }
+        $this->em->flush();
         fclose($fp);
+    }
+
+    private function cleanNumber($value)
+    {
+        // Remove dots (thousands separator) and replace comma with point
+        $value = str_replace(['.', ','], ['', '.'], $value);
+        return (float)$value;
     }
 
 

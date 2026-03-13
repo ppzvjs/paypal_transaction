@@ -2,8 +2,10 @@
 
 namespace App\Command;
 
+use App\Entity\Transactions;
 use App\Service\PaypalService;
 use App\Service\PushMetricsService;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -16,9 +18,11 @@ use Symfony\Component\Console\Output\OutputInterface;
 class PaypalConnectCronCommand extends Command
 {
     public function __construct(
-        private PaypalService $paypalService,
-        private PushMetricsService $metrics
-    ) {
+        private PaypalService          $paypalService,
+        private PushMetricsService     $metrics,
+        private EntityManagerInterface $em
+    )
+    {
         parent::__construct();
     }
 
@@ -105,12 +109,27 @@ class PaypalConnectCronCommand extends Command
         while (($row = fgetcsv($handle, 0, ';')) !== false) {
             $entries++;
 
+            $transaction = new Transactions();
+
+            // Note: Adjust the indexes ($row[0], $row[1]...) based on your actual CSV column order
+            $transaction->setCreated(new \DateTime($row[0] ?? 'now'));
+            $transaction->setName($row[1] ?? 'Unknown');
+            $transaction->setType('Paypal');
+            $transaction->setBrutto($this->cleanNumber($row[2] ?? '0'));
+            $transaction->setGebuehr($this->cleanNumber($row[3] ?? '0'));
+            $transaction->setNetto($this->cleanNumber($row[4] ?? '0'));
+            $transaction->setAmount($this->cleanNumber($row[6] ?? '0')); // Mapping Brutto to Amount as well
+            $transaction->setDescription($row[5] ?? 'No description');
+
+
             $invoice = $row[5] ?? '';
             if (trim($invoice) === '') {
                 $missing++;
             }
-        }
 
+            $this->em->persist($transaction);
+        }
+        $this->em->flush();
         fclose($handle);
 
         // METRICS UPDATES
@@ -124,5 +143,12 @@ class PaypalConnectCronCommand extends Command
         error_log("[PayPal Cron] SUCCESS for $dateStr → entries=$entries, missing=$missing");
 
         return Command::SUCCESS;
+    }
+
+    private function cleanNumber($value)
+    {
+        // Remove dots (thousands separator) and replace comma with point
+        $value = str_replace(['.', ','], ['', '.'], $value);
+        return (float)$value;
     }
 }

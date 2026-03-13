@@ -5,6 +5,7 @@ namespace App\Command;
 use App\Service\PaypalService;
 use App\Service\PushMetricsService;
 use App\Service\StripeService;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -21,7 +22,8 @@ class StripeConnectCronCommand extends Command
 {
     public function __construct(
         private StripeService $stripeService,
-        private PushMetricsService $metrics
+        private PushMetricsService $metrics,
+        private EntityManagerInterface $em
     ) {
         parent::__construct();
     }
@@ -56,5 +58,12 @@ class StripeConnectCronCommand extends Command
 
 
         return Command::SUCCESS;
+    }
+
+    private function cleanNumber($value)
+    {
+        // Remove dots (thousands separator) and replace comma with point
+        $value = str_replace(['.', ','], ['', '.'], $value);
+        return (float)$value;
     }
 }

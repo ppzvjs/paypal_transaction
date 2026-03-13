@@ -18,5 +18,20 @@ services:
       - ./src:/var/www/html
     entrypoint: [ 'php', '/var/www/html/bin/console' ]
 
+  db:
+    container_name: database_paypal_service
+    image: mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - '${DB_PORT}:3306'
+    healthcheck:
+      test: "exit 0"
+    volumes:
+      - db:/var/lib/mysql
 volumes:
   db:
