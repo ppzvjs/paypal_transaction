@@ -68,15 +68,32 @@ class PaypalService
             $dt = new \DateTimeImmutable($rawDate, new \DateTimeZone('UTC'));
             $berlinDate = $dt->setTimezone(new \DateTimeZone('Europe/Berlin'));
 
-            $payerName = trim(($payer['payer_name']['given_name'] ?? '') . ' ' . ($payer['payer_name']['surname'] ?? '')) ?: 'Unbekannt';
+            $payerName = 'Unbekannt';
+            if (!empty($payer)) {
+                if (!empty($payer['payer_name']['alternate_full_name'])) {
+                    $payerName = $payer['payer_name']['alternate_full_name'];
+                } elseif (!empty($payer['payer_name']['given_name']) || !empty($payer['payer_name']['surname'])) {
+                    $payerName = trim(($payer['payer_name']['given_name'] ?? '') . ' ' . ($payer['payer_name']['surname'] ?? ''));
+                }
+            }
+
             $brutto = (float)($info['transaction_amount']['value'] ?? 0);
             $gebuehr = (float)($info['fee_amount']['value'] ?? 0);
             $netto = (float)($info['net_amount']['value'] ?? 0);
-            $invoice = $info['invoice_id'] ?? '';
+            if ($netto == 0 && $brutto != 0) {
+                $netto = $brutto + $gebuehr;
+            }
+            $rechnungsnummer = $info['invoice_id'] ?? '';
+            if ($rechnungsnummer === '' && !empty($info['transaction_subject'])) {
+                if (preg_match('/^\d{3,7}_\d{3,7}-\d{3,7}$/', $info['transaction_subject'])) {
+                    $rechnungsnummer = $info['transaction_subject'];
+                }
+            }
             $guthaben = (float)($info['ending_balance']['value'] ?? 0);
 
             // CSV Row
-            $row = [$berlinDate->format('d.m.Y'), $payerName, $brutto, $gebuehr, $netto, $invoice, $guthaben];
+            $row = [$berlinDate->format('d.m.Y'), $payerName, $brutto, $gebuehr, $netto, $rechnungsnummer, $guthaben];
+
             fputcsv($fp, $row, ';');
 
             // DB Entity
@@ -88,7 +105,7 @@ class PaypalService
             $transaction->setGebuehr($gebuehr);
             $transaction->setNetto($netto);
             $transaction->setAmount($guthaben);
-            $transaction->setDescription($invoice ?: 'No Invoice');
+            $transaction->setDescription($rechnungsnummer);
 
             $this->em->persist($transaction);
 
