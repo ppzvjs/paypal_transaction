@@ -37,6 +37,15 @@ class Transactions
     #[ORM\Column(length: 255)]
     private ?string $type = null;
 
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $paypal_account_id = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $transaction_id = null;
+
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $paypal_reference_id = null;
+
     public function getId(): ?int
     {
         return $this->id;
@@ -134,6 +143,42 @@ class Transactions
     public function setType(string $type): static
     {
         $this->type = $type;
+
+        return $this;
+    }
+
+    public function getPaypalAccountId(): ?string
+    {
+        return $this->paypal_account_id;
+    }
+
+    public function setPaypalAccountId(?string $paypal_account_id): static
+    {
+        $this->paypal_account_id = $paypal_account_id;
+
+        return $this;
+    }
+
+    public function getTransactionId(): ?string
+    {
+        return $this->transaction_id;
+    }
+
+    public function setTransactionId(?string $transaction_id): static
+    {
+        $this->transaction_id = $transaction_id;
+
+        return $this;
+    }
+
+    public function getPaypalReferenceId(): ?string
+    {
+        return $this->paypal_reference_id;
+    }
+
+    public function setPaypalReferenceId(?string $paypal_reference_id): static
+    {
+        $this->paypal_reference_id = $paypal_reference_id;
 
         return $this;
     }

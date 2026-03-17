@@ -105,6 +105,7 @@ class PaypalService
             ];
 
 
+
             // DB Entity
             $transaction = new Transactions();
             $transaction->setCreated(new \DateTime($datum));
@@ -115,6 +116,9 @@ class PaypalService
             $transaction->setNetto($netto);
             $transaction->setAmount($guthaben);
             $transaction->setDescription($rechnungsnummer);
+            $transaction->setPaypalAccountId(array_key_exists('paypal_account_id',$info) ? $info['paypal_account_id'] : '');
+            $transaction->setTransactionId(array_key_exists('transaction_id',$info) ? $info['transaction_id'] : '');
+            $transaction->setPaypalReferenceId(array_key_exists('paypal_reference_id',$info) ? $info['paypal_reference_id'] : '');
 
             $this->em->persist($transaction);
 
