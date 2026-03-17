@@ -63,10 +63,11 @@ class PaypalService
             $info = $t['transaction_info'] ?? [];
             $payer = $t['payer_info'] ?? [];
 
-            // Mapping
-            $rawDate = $info['transaction_initiation_date'] ?? 'now';
-            $dt = new \DateTimeImmutable($rawDate, new \DateTimeZone('UTC'));
-            $berlinDate = $dt->setTimezone(new \DateTimeZone('Europe/Berlin'));
+            $datum = 'N/A';
+            if (!empty($info['transaction_initiation_date'])) {
+                $date = new \DateTimeImmutable($info['transaction_initiation_date'], new \DateTimeZone('UTC'));
+                $datum = $date->setTimezone(new \DateTimeZone('Europe/Berlin'))->format('d.m.Y');
+            }
 
             $payerName = 'Unbekannt';
             if (!empty($payer)) {
@@ -92,13 +93,21 @@ class PaypalService
             $guthaben = (float)($info['ending_balance']['value'] ?? 0);
 
             // CSV Row
-            $row = [$berlinDate->format('d.m.Y'), $payerName, $brutto, $gebuehr, $netto, $rechnungsnummer, $guthaben];
 
-            fputcsv($fp, $row, ';');
+            $csvRows[] = [
+                $datum,
+                $payerName,
+                number_format($brutto, 2, ',', ''),
+                number_format($gebuehr, 2, ',', ''),
+                number_format($netto, 2, ',', ''),
+                $rechnungsnummer,
+                number_format($guthaben, 2, ',', ''),
+            ];
+
 
             // DB Entity
             $transaction = new Transactions();
-            $transaction->setCreated(\DateTime::createFromImmutable($berlinDate));
+            $transaction->setCreated(new \DateTime($datum));
             $transaction->setName($payerName);
             $transaction->setType('Paypal');
             $transaction->setBrutto($brutto);
@@ -112,6 +121,11 @@ class PaypalService
             $stats['entries']++;
             if (empty($invoice)) $stats['missing_invoice']++;
         }
+
+        foreach ($csvRows as $row) {
+            fputcsv($fp, $row, ';');
+        }
+
 
         $this->em->flush();
         fclose($fp);
